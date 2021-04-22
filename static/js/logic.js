@@ -1,147 +1,142 @@
+// data sources
+const earthquakeURL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
+const plateURL = "https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json";
 
+// create promises for eaach source
+var quakePromise = d3.json(earthquakeURL).then(function(data){
+    return data
+});
 
-// function for the markers
+var platePromise =d3.json(plateURL).then(function(data){
+    return data
+});
 
-function markerColour(depth){
+// promise all to use both sources at once
+Promise.all([quakePromise,platePromise]).then(function(data){
 
-    if (depth <= 10 ){
-        return "green"
-    }
-    else if (depth > 10 && depth <= 30 ){
-        return "yellow green"
-    }
-    else if (depth > 30 && depth <= 50 ){
-        return "yellow"
-    }
-    else if (depth > 50 && depth <= 70 ){
-        return "yellow orange"
-    }
-    else if (depth > 70 && depth <= 90 ){
-        return "orange"
-    }
-    else if (depth > 90){
-        return "red"
-    }
-    else {
-        return "black"
-    }
-};
-
-
-// adding earthquake markers
-quakeMarkers = [];
-d3.json("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson",function(data){
-    
-    console.log("earthquake data:")
     console.log(data);
 
-    var array = data.features;
+    // promise all returns array of arrays
+    var quakeData = data[0]; 
+    var plateData = data[1];
 
-    for (var i =0; i < array.length; i++){
+    // create quake marker 
+    var quakeMarkers = []
+    var qFeatures = quakeData.features
 
-        var location = array[i].geometry.coordinates.slice(0,2).reverse();
+    for (var i =0; i < qFeatures.length; i++){
 
-        var depth = array[i].geometry.coordinates[2];
-        var magnitude = array[i].properties.mag;
-        
+        var location = qFeatures[i].geometry.coordinates.slice(0,2).reverse();
+        var depth = qFeatures[i].geometry.coordinates[2];
+        var magnitude = qFeatures[i].properties.mag;
+
+        // push each marker into our array of markers
         quakeMarkers.push(
             L.circle(location, {
                 fillOpacity: 1,
                 color: "black",
                 weight: 1,
-                fillColor: markerColour(depth),
-                radius: magnitude*20000
+                fillColor: markerColour(depth), //marker color function @ end
+                radius: magnitude*30000
             })
         );
     }; 
-});
 
-var quakeLayer = L.layerGroup(quakeMarkers);
+    // create marker layer with array 
+    var quakeLayer = L.layerGroup(quakeMarkers);
 
-// plates lines
+    // Use geoJSON for plate data as it is more simple
+    var plateLayer = L.geoJSON(plateData.features);
 
-
-d3.json("https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json", function(data){
-    plateMarkers = [];
-    console.log("plate data:")
-    console.log(data.features);
-
-    var array = data.features;
-    
-    for (var i =0; i < array.length; i++){
-
-        var rawline = array[i].geometry.coordinates;
-        var line = [];
-
-        for (var j =0; j < rawline.length; j++){
-            line.push(rawline[j].reverse());
-        };
-
-        plateMarkers.push(
-            L.polyline(line,{
-            color: "red",
-            weight : 2
-            })
-        );
+    // add all info layers to "overlay maps" object to use for controls
+    overlayMaps = {
+        Earthquakes : quakeLayer,
+        Plates : plateLayer
     };
 
-    console.log(plateMarkers)
+    // create legend
+    // legend code heavily leans on leaflet documentation exmaple
+    // https://leafletjs.com/examples/choropleth/
+    var legend = L.control({position: 'bottomright'});
+    legend.onAdd = function (map) {
+        var div = L.DomUtil.create('div', 'info legend'),
+            grades = [0, 10, 30, 50, 70, 90],
+            labels = [];
+        for (var i = 0; i < grades.length; i++) {
+            div.innerHTML +=
+                '<i style="background:' + markerColour(grades[i] + 1) + '"></i> ' +
+                grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+        }
+    return div;
+    };
 
-    var plateLayer = L.layerGroup(plateMarkers);
+    // Create base maps
+    var satelliteTile = L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
+        attribution: "© <a href='https://www.mapbox.com/about/maps/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> <strong><a href='https://www.mapbox.com/map-feedback/' target='_blank'>Improve this map</a></strong>",
+        tileSize: 512,
+        maxZoom: 18,
+        zoomOffset: -1,
+        id: "mapbox/satellite-v9",
+        accessToken: API_KEY
+    });
+
+    var outdoorsTile = L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
+        attribution: "© <a href='https://www.mapbox.com/about/maps/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> <strong><a href='https://www.mapbox.com/map-feedback/' target='_blank'>Improve this map</a></strong>",
+        tileSize: 512,
+        maxZoom: 18,
+        zoomOffset: -1,
+        id: "mapbox/outdoors-v11",
+        accessToken: API_KEY
+    });
+
+    var darkTile = L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
+        attribution: "© <a href='https://www.mapbox.com/about/maps/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> <strong><a href='https://www.mapbox.com/map-feedback/' target='_blank'>Improve this map</a></strong>",
+        tileSize: 512,
+        maxZoom: 18,
+        zoomOffset: -1,
+        id: "mapbox/dark-v10",
+        accessToken: API_KEY
+    });
+
+    // add all base maps into an object to pass into L.control later
+
+    baseMaps = {
+        Satellite : satelliteTile,
+        Dark : darkTile,
+        Outdoors : outdoorsTile
+    };
+
+   //initialise map
+    var myMap = L.map("map", {
+        center: [45.52, -122.67],
+        zoom: 4,
+        layers: [darkTile, quakeLayer, plateLayer] //default layers
+    });
+
+    // add control and legend
+    L.control.layers(baseMaps, overlayMaps).addTo(myMap);
+    legend.addTo(myMap);
+
 });
 
+function markerColour(depth){
 
-//base maps
-
-
-// Define variables for our tile layers
-var light = L.tileLayer("https://api.mapbox.com/styles/v1/mapbox/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
-  attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
-  maxZoom: 18,
-  id: "light-v10",
-  accessToken: API_KEY
-});
-
-var dark = L.tileLayer("https://api.mapbox.com/styles/v1/mapbox/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
-  attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
-  maxZoom: 18,
-  id: "dark-v10",
-  accessToken: API_KEY
-});
-
-// Only one base layer can be shown at a time
-var baseMaps = {
-  Light: light,
-  Dark: dark
+    if (depth <= 10 ){
+        return "#fcde9c"
+    }
+    else if (depth <= 30 ){
+        return "#faa476"
+    }
+    else if (depth <= 50 ){
+        return "#f0746e"
+    }
+    else if (depth <= 70 ){
+        return "#e34f6f"
+    }
+    else if (depth <= 90 ){
+        return "#dc3977"
+    }
+    else {
+        return "#b9257a"
+    }
 };
-//overlay
-var overlayMaps = {
-    Earthquakes: quakeLayer,
-    Plates : plateLayer
-  };
-
-// Creating our initial map object
-var myMap = L.map("map", {
-    center: [45.52, -122.67],
-    zoom: 4,
-    layers: [light,quakeLayer]
-  });
-  
-// Adding a tile layer 
-// L.tileLayer("https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}", {
-// attribution: "© <a href='https://www.mapbox.com/about/maps/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> <strong><a href='https://www.mapbox.com/map-feedback/' target='_blank'>Improve this map</a></strong>",
-// tileSize: 512,
-// maxZoom: 18,
-// zoomOffset: -1,
-// id: "mapbox/streets-v11",
-// accessToken: API_KEY
-// }).addTo(myMap);
-
-L.control.layers(baseMaps, overlayMaps).addTo(myMap);
-
-
-
-
-
-  
-  
